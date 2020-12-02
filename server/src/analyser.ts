@@ -38,18 +38,23 @@ export default class Analyzer {
     connection,
     rootPath,
     parser,
+    verbose
   }: {
     connection: LSP.Connection
     rootPath: LSP.InitializeParams['rootPath']
     parser: Parser
+    verbose: boolean
   }): Promise<Analyzer> {
     const analyzer = new Analyzer(parser)
 
     if (rootPath) {
       const globPattern = getGlobPattern()
-      connection.console.log(
-        `Analyzing files matching glob "${globPattern}" inside ${rootPath}`,
-      )
+      
+      if (verbose) {
+        connection.console.log(
+          `Analyzing files matching glob "${globPattern}" inside ${rootPath}`,
+        )
+      }
 
       const lookupStartTime = Date.now()
       const getTimePassed = (): string =>
@@ -66,19 +71,25 @@ export default class Analyzer {
 
       // TODO: we could load all files without extensions: globPattern: '**/[^.]'
 
-      connection.console.log(
-        `Glob resolved with ${filePaths.length} files after ${getTimePassed()}`,
-      )
+      if (verbose) {
+          connection.console.log(
+          `Glob resolved with ${filePaths.length} files after ${getTimePassed()}`,
+        )
+      }
 
       for (const filePath of filePaths) {
         const uri = `file://${filePath}`
-        connection.console.log(`Analyzing ${uri}`)
+        if (verbose) {
+          connection.console.log(`Analyzing ${uri}`)
+        }
 
         try {
           const fileContent = await readFileAsync(filePath, 'utf8')
           const shebang = getShebang(fileContent)
           if (shebang && !isBashShebang(shebang)) {
-            connection.console.log(`Skipping file ${uri} with shebang "${shebang}"`)
+            if (verbose) {
+              connection.console.log(`Skipping file ${uri} with shebang "${shebang}"`)
+            }
             continue
           }
 
@@ -88,7 +99,9 @@ export default class Analyzer {
         }
       }
 
-      connection.console.log(`Analyzer finished after ${getTimePassed()}`)
+      if (verbose) {
+        connection.console.log(`Analyzer finished after ${getTimePassed()}`)
+      }
     }
 
     return analyzer

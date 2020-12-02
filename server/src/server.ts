@@ -15,6 +15,14 @@ import { getShellDocumentation } from './util/sh'
 
 const PARAMETER_EXPANSION_PREFIXES = new Set(['$', '${'])
 
+/********************
+ * Helper interfaces
+ ********************/
+// Client settings interface to grab settings relevant for the language server
+interface Settings {
+  verbose: boolean;
+}
+
 /**
  * The BashServer glues together the separate components to implement
  * the various parts of the Language Server Protocol.
@@ -26,7 +34,7 @@ export default class BashServer {
    */
   public static async initialize(
     connection: LSP.Connection,
-    { rootPath }: LSP.InitializeParams,
+    { rootPath, initializationOptions }: LSP.InitializeParams,
   ): Promise<BashServer> {
     const parser = await initializeParser()
 
@@ -36,13 +44,20 @@ export default class BashServer {
       throw new Error('Expected PATH environment variable to be set')
     }
 
+    let verbose = true;
+    if (initializationOptions) {
+      if (Object.prototype.hasOwnProperty.call(initializationOptions, 'verbose')) {
+        verbose = initializationOptions.verbose;
+      }
+    }
+
     return Promise.all([
       Executables.fromPath(PATH),
-      Analyzer.fromRoot({ connection, rootPath, parser }),
+      Analyzer.fromRoot({ connection, rootPath, parser, verbose}),
     ]).then(xs => {
       const executables = xs[0]
       const analyzer = xs[1]
-      return new BashServer(connection, executables, analyzer)
+      return new BashServer(connection, executables, analyzer, verbose)
     })
   }
 
@@ -52,14 +67,18 @@ export default class BashServer {
   private documents: LSP.TextDocuments<TextDocument> = new LSP.TextDocuments(TextDocument)
   private connection: LSP.Connection
 
+  private verbose = true;
+
   private constructor(
     connection: LSP.Connection,
     executables: Executables,
     analyzer: Analyzer,
+    verbose: boolean
   ) {
     this.connection = connection
     this.executables = executables
     this.analyzer = analyzer
+    this.verbose = verbose
   }
 
   /**
@@ -90,6 +109,15 @@ export default class BashServer {
     connection.onReferences(this.onReferences.bind(this))
     connection.onCompletion(this.onCompletion.bind(this))
     connection.onCompletionResolve(this.onCompletionResolve.bind(this))
+    connection.onDidChangeConfiguration((change) => {
+      const settings = change.settings as Settings;
+      if (settings) {
+        if (Object.prototype.hasOwnProperty.call(settings, 'verbose')) {
+          this.verbose = settings.verbose;
+        }
+      }
+      this.log(`onDidChangeConfiguration`)
+    })
   }
 
   /**
@@ -123,6 +151,12 @@ export default class BashServer {
     )
   }
 
+  private log(message : any) {
+    if(this.verbose) {
+      this.connection.console.log(message, )
+    }
+  }
+
   private logRequest({
     request,
     params,
@@ -133,7 +167,7 @@ export default class BashServer {
     word?: string | null
   }) {
     const wordLog = word ? `"${word}"` : 'null'
-    this.connection.console.log(
+    this.log(
       `${request} ${params.position.line}:${params.position.character} word=${wordLog}`,
     )
   }
@@ -200,7 +234,7 @@ export default class BashServer {
 
     const explainshellEndpoint = config.getExplainshellEndpoint()
     if (explainshellEndpoint) {
-      this.connection.console.log(`Query ${explainshellEndpoint}`)
+      this.log(`Query ${explainshellEndpoint}`)
       try {
         const response = await this.analyzer.getExplainshellDocumentation({
           params,
@@ -208,9 +242,9 @@ export default class BashServer {
         })
 
         if (response.status === 'error') {
-          this.connection.console.log(
-            `getExplainshellDocumentation returned: ${JSON.stringify(response, null, 4)}`,
-          )
+          this.log(
+              `getExplainshellDocumentation returned: ${JSON.stringify(response, null, 4)}`,
+            )
         } else {
           return {
             contents: {
@@ -268,12 +302,12 @@ export default class BashServer {
   }
 
   private onDocumentSymbol(params: LSP.DocumentSymbolParams): LSP.SymbolInformation[] {
-    this.connection.console.log(`onDocumentSymbol`)
+    this.log(`onDocumentSymbol`)
     return this.analyzer.findSymbolsForFile({ uri: params.textDocument.uri })
   }
 
   private onWorkspaceSymbol(params: LSP.WorkspaceSymbolParams): LSP.SymbolInformation[] {
-    this.connection.console.log('onWorkspaceSymbol')
+    this.log('onWorkspaceSymbol')
     return this.analyzer.search(params.query)
   }
 
@@ -407,7 +441,7 @@ export default class BashServer {
       data: { name, type },
     } = item as BashCompletionItem
 
-    this.connection.console.log(`onCompletionResolve name=${name} type=${type}`)
+    this.log(`onCompletionResolve name=${name} type=${type}`)
 
     try {
       let documentation = null

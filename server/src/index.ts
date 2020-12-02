@@ -16,7 +16,17 @@ export function listen() {
 
   connection.onInitialize(
     async (params: LSP.InitializeParams): Promise<LSP.InitializeResult> => {
-      connection.console.log(`Initialized server v. ${pkg.version} for ${params.rootUri}`)
+      const { initializationOptions } = params;
+      let verbose = true;
+      if (initializationOptions) {
+        if (Object.prototype.hasOwnProperty.call(initializationOptions, 'verbose')) {
+          verbose = initializationOptions.verbose;
+        }
+      }
+
+      if (verbose) {
+        connection.console.log(`Initialized server v. ${pkg.version} for ${params.rootUri}`)
+      }
 
       const server = await BashServer.initialize(connection, params)
 
